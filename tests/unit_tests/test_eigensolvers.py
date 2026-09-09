@@ -68,10 +68,13 @@ class TestEigensolvers(unittest.TestCase):
         # Does not require eigenvalues to match LAPACK, since Noisy VQD is a demo.
         # Check that each found state returns a positive energy-diff uncertainty.
         try:
-            eigenvalues, _, uq_values, uq_vectors = (
-                eigenbridge.run_vqd_eigensolver(
-                    self.flat_matrix, n=3, use_noise=True
-                )
+            (
+                eigenvalues,
+                _,
+                uq_values,
+                uq_vectors,
+            ) = eigenbridge.run_vqd_eigensolver(
+                self.flat_matrix, n=3, use_noise=True
             )
         except ImportError as exc:
             self.skipTest(f"Noisy VQD deps missing: {exc}")
@@ -107,10 +110,13 @@ class TestEigensolvers(unittest.TestCase):
 
     def test_qaoa_eigensolver_noise(self):
         try:
-            eigenvalues, _, uq_values, uq_vectors = (
-                eigenbridge.run_qaoa_eigensolver(
-                    self.flat_matrix, n=3, use_noise=True
-                )
+            (
+                eigenvalues,
+                _,
+                uq_values,
+                uq_vectors,
+            ) = eigenbridge.run_qaoa_eigensolver(
+                self.flat_matrix, n=3, use_noise=True
             )
         except ImportError as exc:
             self.skipTest(f"Noisy QAOA deps missing: {exc}")
