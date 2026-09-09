@@ -119,12 +119,12 @@ def _make_estimator(use_noise):
         from qiskit_ibm_runtime.fake_provider import FakeManilaV2
     except ImportError as exc:
         raise ImportError(
-            "Noisy QAOA requires qiskit-aer and qiskit-ibm-runtime. "
+            "Noisy solvers require qiskit-aer and qiskit-ibm-runtime. "
             "Install with: pip install qiskit-aer qiskit-ibm-runtime"
         ) from exc
 
     fake_backend = FakeManilaV2()
-    noise_model = NoiseModel.from_backend(fake_backend, warnings=False)
+    noise_model = NoiseModel.from_backend(fake_backend)
     aer_simulator = AerSimulator(noise_model=noise_model)
     pass_manager = generate_preset_pass_manager(
         optimization_level=1, backend=aer_simulator
@@ -158,10 +158,14 @@ def _energy_diff_uncertainty(circuit, parameters, observable, noisy_estimator):
     return abs(noisy_energy - exact_energy)
 
 
-def run_vqd_eigensolver(flat_matrix, n, k=None):
+def run_vqd_eigensolver(flat_matrix, n, k=None, use_noise=False):
     """
     Takes a flat matrix of size n*n, and returns the lowest k eigenvalues
     and matching eigenvectors using VQD.
+
+    With use_noise=True, only the energy estimator is noisy (FakeManila);
+    VQD still recognizes distinct states perfectly.
+    Expect worse eigenvalues, especially for k > 1.
     """
     if k is None:
         k = n
@@ -172,9 +176,14 @@ def run_vqd_eigensolver(flat_matrix, n, k=None):
     num_qubits = int(np.log2(next_pow2))
 
     ansatz = EfficientSU2(num_qubits, reps=1, entanglement="linear")
-    optimizer = SLSQP(maxiter=1000, ftol=1e-9)
-    estimator = StatevectorEstimator()
+    estimator, pass_manager = _make_estimator(use_noise)
+    # Keep exact fidelity even under noise: overlaps stay exact; only energy
+    # is FakeManila-noisy (same demo style as QAOA).
     fidelity = _ExactStatevectorFidelity()
+    if use_noise:
+        optimizer = COBYLA(maxiter=50)
+    else:
+        optimizer = SLSQP(maxiter=1000, ftol=1e-9)
 
     # Overlap weights on the scale of the original matrix, not the padding.
     beta = 10.0 * max(
@@ -191,7 +200,18 @@ def run_vqd_eigensolver(flat_matrix, n, k=None):
                 rng.uniform(-np.pi, np.pi, ansatz.num_parameters)
             )
 
-    vqd = VQD(estimator, fidelity, ansatz, optimizer, k=k, betas=betas)
+    if use_noise:
+        vqd = VQD(
+            estimator,
+            fidelity,
+            ansatz,
+            optimizer,
+            k=k,
+            betas=betas,
+            transpiler=pass_manager,
+        )
+    else:
+        vqd = VQD(estimator, fidelity, ansatz, optimizer, k=k, betas=betas)
     vqd.initial_point = initial_points
 
     result = vqd.compute_eigenvalues(observable)
@@ -204,6 +224,14 @@ def run_vqd_eigensolver(flat_matrix, n, k=None):
         )
     uq_values = [0.0] * len(eigenvalues)
     uq_vectors = [0.0] * (n * n)
+    if use_noise:
+        for i in range(k):
+            uq_values[i] = _energy_diff_uncertainty(
+                result.optimal_circuits[i],
+                result.optimal_points[i],
+                observable,
+                estimator,
+            )
 
     return eigenvalues, eigenvectors.ravel().tolist(), uq_values, uq_vectors
 
@@ -247,24 +275,45 @@ def run_qaoa_eigensolver(flat_matrix, n, use_noise=False, reps=3):
 if __name__ == "__main__":
     # The same 3x3 matrix from the C++ test file
     test_matrix = [3.0, 5.0, 2.0, 5.0, 1.0, 3.0, 2.0, 3.0, 2.0]
-    values, vectors = run_vqd_eigensolver(test_matrix, 3)
-    print(f"VQD Eigenvalues: {values}")
-    print(f"VQD Eigenvectors: {vectors}")
+
+    print("=== VQD (noiseless) ===")
+    values, vectors, vqd_uq_v, vqd_uq_vec = run_vqd_eigensolver(test_matrix, 3)
+    print(f"Eigenvalues: {values}")
+    print(f"Eigenvectors: {vectors}")
+    print(f"uq_values: {vqd_uq_v}")
+
+    try:
+        print("\n=== VQD (noise) ===")
+        (
+            vqd_noisy_values,
+            vqd_noisy_vectors,
+            vqd_noisy_uq_v,
+            vqd_noisy_uq_vec,
+        ) = run_vqd_eigensolver(test_matrix, 3, use_noise=True)
+        print(f"Eigenvalues: {vqd_noisy_values}")
+        print(f"Eigenvectors: {vqd_noisy_vectors}")
+        print(f"uq_values: {vqd_noisy_uq_v}")
+    except ImportError as exc:
+        print(f"Skipping noisy VQD demo: {exc}")
+
+    print("\n=== QAOA (noiseless) ===")
     qaoa_values, qaoa_vectors, qaoa_uq_v, qaoa_uq_vec = run_qaoa_eigensolver(
         test_matrix, 3
     )
-    print(f"QAOA Eigenvalue: {qaoa_values}")
-    print(f"QAOA Eigenvector: {qaoa_vectors}")
-    print(f"QAOA uq_values: {qaoa_uq_v}")
+    print(f"Eigenvalue: {qaoa_values}")
+    print(f"Eigenvector: {qaoa_vectors}")
+    print(f"uq_values: {qaoa_uq_v}")
+
     try:
+        print("\n=== QAOA (noise) ===")
         (
             qaoa_noisy_values,
             qaoa_noisy_vectors,
             noisy_uq_v,
             noisy_uq_vec,
         ) = run_qaoa_eigensolver(test_matrix, 3, use_noise=True)
-        print(f"QAOA Eigenvalue (noise): {qaoa_noisy_values}")
-        print(f"QAOA Eigenvector (noise): {qaoa_noisy_vectors}")
-        print(f"QAOA uq_values (noise): {noisy_uq_v}")
+        print(f"Eigenvalue: {qaoa_noisy_values}")
+        print(f"Eigenvector: {qaoa_noisy_vectors}")
+        print(f"uq_values: {noisy_uq_v}")
     except ImportError as exc:
         print(f"Skipping noisy QAOA demo: {exc}")
