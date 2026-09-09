@@ -64,6 +64,30 @@ class TestEigensolvers(unittest.TestCase):
             results, val_places=8, vec_places=4, uq_val=0.0, uq_vec=0.0
         )
 
+    def test_vqd_eigensolver_noise(self):
+        # Does not require eigenvalues to match LAPACK, since Noisy VQD is a demo.
+        # Check that each found state returns a positive energy-diff uncertainty.
+        try:
+            eigenvalues, _, uq_values, uq_vectors = (
+                eigenbridge.run_vqd_eigensolver(
+                    self.flat_matrix, n=3, use_noise=True
+                )
+            )
+        except ImportError as exc:
+            self.skipTest(f"Noisy VQD deps missing: {exc}")
+
+        self.assertEqual(len(eigenvalues), 3)
+        for uq in uq_values:
+            self.assertGreater(uq, 0.0)
+        for uq in uq_vectors:
+            self.assertEqual(uq, 0.0)
+        # Ground-state predicted noise must be within a factor of 10 of the actual error.
+        actual_error = abs(eigenvalues[0] - self.correct_eigenvalues[0])
+        predicted = uq_values[0]
+        if actual_error > 0.0:
+            ratio = max(actual_error, predicted) / min(actual_error, predicted)
+            self.assertLess(ratio, 10.0)
+
     def test_qaoa_eigensolver(self):
         # Adjust the correct eigenvalues and eigenvectors for QAOA's output
         # The QAOA solver will not return all eigenvalues/eigenvectors, so we
@@ -80,3 +104,24 @@ class TestEigensolvers(unittest.TestCase):
         self._check_results(
             results, val_places=8, vec_places=4, uq_val=0.0, uq_vec=0.0
         )
+
+    def test_qaoa_eigensolver_noise(self):
+        try:
+            eigenvalues, _, uq_values, uq_vectors = (
+                eigenbridge.run_qaoa_eigensolver(
+                    self.flat_matrix, n=3, use_noise=True
+                )
+            )
+        except ImportError as exc:
+            self.skipTest(f"Noisy QAOA deps missing: {exc}")
+
+        self.assertGreater(uq_values[0], 0.0)
+        for uq in uq_values[1:]:
+            self.assertEqual(uq, 0.0)
+        for uq in uq_vectors:
+            self.assertEqual(uq, 0.0)
+        actual_error = abs(eigenvalues[0] - self.correct_eigenvalues[0])
+        predicted = uq_values[0]
+        if actual_error > 0.0:
+            ratio = max(actual_error, predicted) / min(actual_error, predicted)
+            self.assertLess(ratio, 10.0)
