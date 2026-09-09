@@ -163,7 +163,8 @@ def run_vqd_eigensolver(flat_matrix, n, k=None, use_noise=False):
     Takes a flat matrix of size n*n, and returns the lowest k eigenvalues
     and matching eigenvectors using VQD.
 
-    With use_noise=True, only the energy estimator is noisy (FakeManila), VQD still recognizes distinct states perfectly. 
+    With use_noise=True, only the energy estimator is noisy (FakeManila);
+    VQD still recognizes distinct states perfectly.
     Expect worse eigenvalues, especially for k > 1.
     """
     if k is None:

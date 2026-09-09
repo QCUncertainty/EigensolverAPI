@@ -81,7 +81,7 @@ class TestEigensolvers(unittest.TestCase):
             self.assertGreater(uq, 0.0)
         for uq in uq_vectors:
             self.assertEqual(uq, 0.0)
-        # Ground-state predicted noise must be within a factor of 10 of the actual error.
+        # Ground-state uq and |λ_noisy − λ_LAPACK| must agree within 10×.
         actual_error = abs(eigenvalues[0] - self.correct_eigenvalues[0])
         predicted = uq_values[0]
         if actual_error > 0.0:
